@@ -1,0 +1,19 @@
+{
+    "ecmaVersion": 5,
+    "loadEagerly": [
+        "**/*.js"
+    ],
+    "plugins": {
+        "complete_strings": {
+            "maxLength": 15
+        },
+        "doc_comment": {
+            "fullDocs": true,
+            "strong": false
+        },
+        "modules": {},
+        "node": {},
+        "node_resolve": {},
+        "commonjs": {}
+    }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "dala-integracion-zendesk-sirena",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fourhats/DALA-Integraci-n-Zendesk-Sirena.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Fourhats/DALA-Integraci-n-Zendesk-Sirena/issues"
+  },
+  "homepage": "https://github.com/Fourhats/DALA-Integraci-n-Zendesk-Sirena#readme",
+  "dependencies": {
+    "mongodb": "^2.2.11",
+    "node-zendesk": "^1.1.11",
+    "q": "^1.4.1",
+    "request-promise": "^4.1.1"
+  }
+}
