@@ -58,17 +58,21 @@ function removeUsers(users) {
     );
 }
 
+
+var deletedUsers;
+var deletingErrors;
+
 function logRemovedUsers(users) {
 
     var db;
-    var deletedUsers = users.filter(function(user) {
+    deletedUsers = users.filter(function(user) {
         return user.state === 'fulfilled';
     })
         .map(function(user) {
             return user.value;
         });
 
-    var errors = users.filter(function(user) {
+    deletingErrors = users.filter(function(user) {
         return user.state === 'rejected';
     })
         .map(function(user) {
@@ -79,7 +83,7 @@ function logRemovedUsers(users) {
         });
 
     console.log('Deleted Users: ' + JSON.stringify(deletedUsers));
-    console.log('Errors: ' + JSON.stringify(errors));
+    console.log('Errors: ' + JSON.stringify(deletingErrors));
 
     return MongoClient.connect(MONGO_URL)
         .then(function(connection) {
@@ -92,12 +96,12 @@ function logRemovedUsers(users) {
             return deletedUsers;
         })
         .then(function() {
-            if (errors.length > 0) {
+            if (deletingErrors.length > 0) {
                 return db
                     .collection('errors')
-                    .insertMany(errors);
+                    .insertMany(deletingErrors);
             }
-            return errors;
+            return deletingErrors;
         })
         .then(function() {
             return db.close();
@@ -127,7 +131,9 @@ function main(callback) {
             .then(function() {
                 return callback(null, {
                     last_run: new Date(),
-                    status: 'OK'
+                    status: 'OK',
+                    deleted_users: deletedUsers,
+                    deleting_errors: deletingErrors
                 });
             })
             .catch(function(error) {
