@@ -44,18 +44,21 @@ function filterUsersToRemove(zendeskUsers, sirenaUsers) {
 }
 
 function removeUsers(users) {
-    return Q.allSettled(
-        users.map(function(user) {
-            return request({
-                method: 'DELETE',
-                uri: SIRENA_API_URL + '/prospect/' + user.id,
-                qs: {
-                    'api-key': SIRENA_API_KEY
-                },
-                json: true
-            });
-        })
-    );
+    if (users.length > 0) {
+        return Q.allSettled(
+            users.map(function(user) {
+                return request({
+                    method: 'DELETE',
+                    uri: SIRENA_API_URL + '/prospect/' + user.id,
+                    qs: {
+                        'api-key': SIRENA_API_KEY
+                    },
+                    json: true
+                });
+            })
+        );
+    }
+    return [];
 }
 
 
@@ -63,7 +66,6 @@ var deletedUsers;
 var deletingErrors;
 
 function logRemovedUsers(users) {
-
     var db;
     deletedUsers = users.filter(function(user) {
         return user.state === 'fulfilled';
@@ -116,11 +118,8 @@ function logRemovedUsers(users) {
 function main(callback) {
     client.users.list(function(err, req, zendeskUsers) {
         if (err) {
-            console.log(err);
-            return;
+            return callback(err);
         }
-
-        console.log(zendeskUsers.length);
 
         return getSirenaUsers()
             .then(function(sirenaUsers) {
@@ -137,9 +136,12 @@ function main(callback) {
                 });
             })
             .catch(function(error) {
+                console.log('error');
                 return callback(error);
             });
     });
 }
+
+//main(console.log);
 
 module.exports = main;
