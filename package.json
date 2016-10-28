@@ -18,7 +18,6 @@
   "homepage": "https://github.com/Fourhats/DALA-Integraci-n-Zendesk-Sirena#readme",
   "dependencies": {
     "mongodb": "^2.2.11",
-    "node-zendesk": "^1.1.11",
     "q": "^1.4.1",
     "request-promise": "^4.1.1"
   },

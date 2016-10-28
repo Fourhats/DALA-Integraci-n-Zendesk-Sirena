@@ -1,7 +1,6 @@
 'use strict';
 
 var request = require('request-promise');
-var zendesk = require('node-zendesk');
 var Q = require('q');
 var MongoClient = require('mongodb').MongoClient;
 
@@ -14,11 +13,36 @@ var SIRENA_API_KEY = 'ZMN49VQc8KeuPf1aVyn9EoeM';
 
 var MONGO_URL = 'mongodb://fourhats:fourhats@ds063546.mlab.com:63546/fourhats';
 
-var client = zendesk.createClient({
-    username: ZEN_USER,
-    token: ZEN_TOKEN,
-    remoteUri: ZEN_API_URL
-});
+function getZendeskUsersPage(page) {
+    return request({
+        method: 'GET',
+        uri: ZEN_API_URL + '/users.json',
+        qs: {
+            'page': page,
+            'sorty_by': 'updated_at',
+            'sort_order': 'desc'
+        },
+        headers: {
+            Authorization: 'Basic ' + new Buffer(ZEN_USER + '/token:' + ZEN_TOKEN).toString('base64')
+        },
+        forever: true,
+        json: true
+    });
+}
+
+function getZendeskUsers(pages) {
+    var reqs = [];
+    for (var i = 1; i <= pages; i++) {
+        reqs.push(getZendeskUsersPage(i));
+    }
+    return Q
+        .all(reqs)
+        .then(function(responses) {
+            return responses.reduce(function(prev, next) {
+                return prev.concat(next.users);
+            }, []);
+        });
+}
 
 function getSirenaUsers() {
     return request({
@@ -32,6 +56,7 @@ function getSirenaUsers() {
 }
 
 function filterUsersToRemove(zendeskUsers, sirenaUsers) {
+    console.log(sirenaUsers.length);
     var existingEmails = zendeskUsers.map(function(user) {
         return user.email;
     });
@@ -116,30 +141,31 @@ function logRemovedUsers(users) {
 }
 
 function main(callback) {
-    client.users.list(function(err, req, zendeskUsers) {
-        if (err) {
-            return callback(err);
-        }
 
-        return getSirenaUsers()
-            .then(function(sirenaUsers) {
-                return filterUsersToRemove(zendeskUsers, sirenaUsers);
-            })
-            .then(removeUsers)
-            .then(logRemovedUsers)
-            .then(function() {
-                return callback(null, {
-                    last_run: new Date(),
-                    status: 'OK',
-                    deleted_users: deletedUsers,
-                    deleting_errors: deletingErrors
-                });
-            })
-            .catch(function(error) {
-                console.log('error');
-                return callback(error);
+    var zendeskUsers;
+    return getZendeskUsers(5)
+        .then(function(users) {
+            console.log(users.length);
+            zendeskUsers = users;
+        })
+        .then(getSirenaUsers)
+        .then(function(sirenaUsers) {
+            return filterUsersToRemove(zendeskUsers, sirenaUsers);
+        })
+        .then(removeUsers)
+        .then(logRemovedUsers)
+        .then(function() {
+            return callback(null, {
+                last_run: new Date(),
+                status: 'OK',
+                deleted_users: deletedUsers,
+                deleting_errors: deletingErrors
             });
-    });
+        })
+        .catch(function(error) {
+            console.log(error);
+            return callback(error);
+        });
 }
 
 //main(console.log);
