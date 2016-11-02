@@ -13,14 +13,66 @@ var SIRENA_API_KEY = 'ZMN49VQc8KeuPf1aVyn9EoeM';
 
 var MONGO_URL = 'mongodb://fourhats:fourhats@ds063546.mlab.com:63546/fourhats';
 
-function getZendeskUsersPage(page) {
+
+function qlimit(maxConcurrency) {
+    var outstandingCount = 0;
+    var queue = [];
+
+    /**
+     * Returns a promise which will resolve when
+     * the concurrency is not saturated
+     */
+    function initialPromise() {
+        if (outstandingCount < maxConcurrency) {
+            outstandingCount++;
+            return Q.resolve();
+        }
+
+        var defer = Q.defer();
+        queue.push(defer);
+        return defer.promise;
+    }
+
+    /**
+     * Called after the factory promise is fulfilled.
+     */
+    function complete() {
+        var next = queue.shift();
+
+        if (next) {
+            next.resolve();
+        } else {
+            outstandingCount--;
+        }
+    }
+
+    /**
+     * Returns a concurrency-limited promise
+     */
+    return function(factory) {
+        return function() {
+            var args = Array.prototype.slice.apply(arguments);
+
+            return initialPromise()
+                .then(function() {
+                    return factory.apply(null, args);
+                })
+                .finally(complete);
+
+        };
+    };
+
+}
+
+var limit = qlimit(30);
+
+var getZendeskUsersPage = limit(function(page) {
+    console.log('Requesting page: ' + page);
     return request({
         method: 'GET',
         uri: ZEN_API_URL + '/users.json',
         qs: {
-            'page': page,
-            'sorty_by': 'updated_at',
-            'sort_order': 'desc'
+            'page': page
         },
         headers: {
             Authorization: 'Basic ' + new Buffer(ZEN_USER + '/token:' + ZEN_TOKEN).toString('base64')
@@ -28,7 +80,15 @@ function getZendeskUsersPage(page) {
         forever: true,
         json: true
     });
+});
+
+function calculateZendeskPages() {
+    return getZendeskUsersPage(1)
+        .then(function(response) {
+            return Math.floor(response.count / 100) + 1;
+        });
 }
+
 
 function getZendeskUsers(pages) {
     var reqs = [];
@@ -58,12 +118,12 @@ function getSirenaUsers() {
 function filterUsersToRemove(zendeskUsers, sirenaUsers) {
     console.log(sirenaUsers.length);
     var existingEmails = zendeskUsers.map(function(user) {
-        return user.email;
+        return user.email !== null ? user.email.toLowerCase() : null;
     });
 
     return sirenaUsers.filter(function(user) {
         return user.emails.some(function(email) {
-            return existingEmails.indexOf(email) !== -1;
+            return existingEmails.indexOf(email.toLowerCase()) !== -1;
         });
     });
 }
@@ -83,7 +143,7 @@ function removeUsers(users) {
             })
         );
     }
-    return [];
+    return users;
 }
 
 
@@ -143,7 +203,10 @@ function logRemovedUsers(users) {
 function main(callback) {
 
     var zendeskUsers;
-    return getZendeskUsers(5)
+    return calculateZendeskPages()
+        .then(function(pages) {
+            return getZendeskUsers(pages);
+        })
         .then(function(users) {
             console.log(users.length);
             zendeskUsers = users;
@@ -168,6 +231,59 @@ function main(callback) {
         });
 }
 
-//main(console.log);
+// console.time('asd');
+// main(function(err, result) {
+//     if (err) {
+//         console.log(err);
+//         console.timeEnd('asd');
+//     }
+//     console.log(result);
+//     console.timeEnd('asd');
+// });
 
 module.exports = main;
+
+
+// Dejo esto acá, porque si todo sale mal, con esto traigo las páginas de usuarios de a una
+
+// fn should return an object like
+// {26771.245ms
+//   done: false,
+//   value: foo
+// }
+// function loop(promise, fn) {
+//     return promise.then(fn).then(function(wrapper) {
+//         return !wrapper.done ? loop(getZendeskUsersPage(wrapper.value), fn) : wrapper.value;
+//     });
+// }
+//
+// function getZendeskUsersPage(url) {
+//     return request({
+//         method: 'GET',
+//         uri: url,
+//         headers: {
+//             Authorization: 'Basic ' + new Buffer(ZEN_USER + '/token:' + ZEN_TOKEN).toString('base64')
+//         },
+//         forever: true,
+//         json: true
+//     });
+// }
+//
+// function getZendeskUsers() {
+//     var deferred = Q.defer();
+//     var zendeskReponses = [];
+//     loop(getZendeskUsersPage(ZEN_API_URL + '/users.json?page=1'), function(response) {
+//         zendeskReponses.push(response);
+//         console.log(zendeskReponses.length);
+//         return {
+//             done: response.next_page === null,
+//             value: response.next_page
+//         };
+//     }).done(function() {
+//         deferred.resolve(zendeskReponses.reduce(function(prev, next) {
+//             return prev.concat(next.users);
+//         }, []));
+//     });
+//
+//     return deferred.promise;
+// }
