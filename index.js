@@ -2,6 +2,7 @@
 
 var request = require('request-promise');
 var Q = require('q');
+var moment = require('moment');
 var MongoClient = require('mongodb').MongoClient;
 
 var ZEN_API_URL = 'https://dalaimpresiontesting.zendesk.com/api/v2';
@@ -12,6 +13,8 @@ var SIRENA_API_URL = 'http://api.getsirena.com/v1';
 var SIRENA_API_KEY = 'ZMN49VQc8KeuPf1aVyn9EoeM';
 
 var MONGO_URL = 'mongodb://fourhats:fourhats@ds063546.mlab.com:63546/fourhats';
+
+var USERS_FROM_LAST_DAYS = 1;
 
 
 function qlimit(maxConcurrency) {
@@ -70,8 +73,9 @@ var getZendeskUsersPage = limit(function(page) {
     console.log('Requesting page: ' + page);
     return request({
         method: 'GET',
-        uri: ZEN_API_URL + '/users.json',
+        uri: ZEN_API_URL + '/search.json',
         qs: {
+            'query': 'type:user updated_at>=' + moment().subtract(USERS_FROM_LAST_DAYS, 'days').format('YYYY-MM-DD'),
             'page': page
         },
         headers: {
@@ -82,11 +86,8 @@ var getZendeskUsersPage = limit(function(page) {
     });
 });
 
-function calculateZendeskPages() {
-    return getZendeskUsersPage(1)
-        .then(function(response) {
-            return Math.floor(response.count / 100) + 1;
-        });
+function calculateZendeskPages(firstPage) {
+    return Math.floor(firstPage.count / 100) + 1;
 }
 
 
@@ -99,7 +100,7 @@ function getZendeskUsers(pages) {
         .all(reqs)
         .then(function(responses) {
             return responses.reduce(function(prev, next) {
-                return prev.concat(next.users);
+                return prev.concat(next.results);
             }, []);
         });
 }
@@ -115,17 +116,76 @@ function getSirenaUsers() {
     });
 }
 
+function getZendeskUserTickets(user) {
+    return request({
+        method: 'GET',
+        uri: ZEN_API_URL + '/users/' + user + '/tickets/requested.json',
+        headers: {
+            Authorization: 'Basic ' + new Buffer(ZEN_USER + '/token:' + ZEN_TOKEN).toString('base64')
+        },
+        forever: true,
+        json: true
+    });
+}
+
+/**
+ * 1) Filters the zendesk users that are also in sirena
+ * 2) Get the tickets only for those users
+ * 3) Return the sirena users that has a ticket with the requested subject in zendesk
+ */
 function filterUsersToRemove(zendeskUsers, sirenaUsers) {
-    console.log(sirenaUsers.length);
-    var existingEmails = zendeskUsers.map(function(user) {
-        return user.email !== null ? user.email.toLowerCase() : null;
+    console.log('Sirena Users Count: ' + sirenaUsers.length);
+
+    var existingSirenaEmails = [].concat.apply([],
+        sirenaUsers.map(function(sirenaUser) {
+            return sirenaUser.emails;
+        })
+    ).map(function(mail) {
+        if (typeof mail !== 'undefined' && mail !== null) {
+            return mail.toLowerCase();
+        }
     });
 
-    return sirenaUsers.filter(function(user) {
-        return user.emails.some(function(email) {
-            return existingEmails.indexOf(email.toLowerCase()) !== -1;
-        });
+    var zendeskUsersInBoth = zendeskUsers.filter(function(zendeskUser) {
+        if (typeof zendeskUser.email !== 'undefined' && zendeskUser.email !== null) {
+            return existingSirenaEmails.indexOf(zendeskUser.email.toLowerCase()) !== -1;
+        }
+        return false;
     });
+
+    return Q.all(
+        zendeskUsersInBoth.map(function(user) {
+            return getZendeskUserTickets(user.id)
+                .then(function(tickets) {
+                    return tickets.tickets.filter(function(ticket) {
+                        return ticket.subject.indexOf('DALA Confirmación!') !== -1;
+                    });
+                })
+                .then(function(confirmations) {
+                    if (confirmations.length > 0) {
+                        return user;
+                    }
+                });
+        })
+    )
+        .then(function(results) {
+            return results.filter(function(result) {
+                return typeof result !== 'undefined';
+            });
+        })
+        .then(function(zendeskUsersToRemove) {
+            var existingEmails = zendeskUsersToRemove.map(function(user) {
+                if (typeof user.email !== 'undefined' && user.email !== null) {
+                    return user.email.toLowerCase();
+                }
+            });
+
+            return sirenaUsers.filter(function(user) {
+                return user.emails.some(function(email) {
+                    return existingEmails.indexOf(email.toLowerCase()) !== -1;
+                });
+            });
+        });
 }
 
 function removeUsers(users) {
@@ -201,11 +261,13 @@ function logRemovedUsers(users) {
 }
 
 function main(callback) {
-
     var zendeskUsers;
-    return calculateZendeskPages()
-        .then(function(pages) {
-            return getZendeskUsers(pages);
+    return getZendeskUsersPage(1)
+        .then(function(firstPage) {
+            if (firstPage.count > 100) {
+                return getZendeskUsers(calculateZendeskPages(firstPage));
+            }
+            return firstPage.results;
         })
         .then(function(users) {
             console.log(users.length);
@@ -242,48 +304,3 @@ function main(callback) {
 // });
 
 module.exports = main;
-
-
-// Dejo esto acá, porque si todo sale mal, con esto traigo las páginas de usuarios de a una
-
-// fn should return an object like
-// {26771.245ms
-//   done: false,
-//   value: foo
-// }
-// function loop(promise, fn) {
-//     return promise.then(fn).then(function(wrapper) {
-//         return !wrapper.done ? loop(getZendeskUsersPage(wrapper.value), fn) : wrapper.value;
-//     });
-// }
-//
-// function getZendeskUsersPage(url) {
-//     return request({
-//         method: 'GET',
-//         uri: url,
-//         headers: {
-//             Authorization: 'Basic ' + new Buffer(ZEN_USER + '/token:' + ZEN_TOKEN).toString('base64')
-//         },
-//         forever: true,
-//         json: true
-//     });
-// }
-//
-// function getZendeskUsers() {
-//     var deferred = Q.defer();
-//     var zendeskReponses = [];
-//     loop(getZendeskUsersPage(ZEN_API_URL + '/users.json?page=1'), function(response) {
-//         zendeskReponses.push(response);
-//         console.log(zendeskReponses.length);
-//         return {
-//             done: response.next_page === null,
-//             value: response.next_page
-//         };
-//     }).done(function() {
-//         deferred.resolve(zendeskReponses.reduce(function(prev, next) {
-//             return prev.concat(next.users);
-//         }, []));
-//     });
-//
-//     return deferred.promise;
-// }
