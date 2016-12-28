@@ -158,7 +158,7 @@ function filterUsersToRemove(zendeskUsers, sirenaUsers) {
             return getZendeskUserTickets(user.id)
                 .then(function(tickets) {
                     return tickets.tickets.filter(function(ticket) {
-                        return ticket.subject.indexOf('DALA Confirmación!') !== -1;
+                        return ticket.subject.indexOf('Confirmamos el pedido? :)') !== -1;
                     });
                 })
                 .then(function(confirmations) {
